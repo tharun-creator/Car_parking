@@ -25,6 +25,7 @@ export default function ScannerInterface() {
   // Status Overlays
   const [resultOverlay, setResultOverlay] = useState<ScanResult | null>(null);
   const [isLocked, setIsLocked] = useState(false); // Debounce lock
+  const isLockedRef = useRef(false); // Synchronous lock ref to prevent duplicate trigger races
 
   const qrRegionId = 'qr-reader-target';
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
@@ -108,8 +109,9 @@ export default function ScannerInterface() {
   };
 
   const handleLookup = async (params: { token?: string; code?: string; method: 'qr' | 'manual_code' }) => {
-    // Prevent double scan / rate limit lookup
-    if (isLocked) return;
+    // Prevent double scan / rate limit lookup using synchronous ref lock
+    if (isLockedRef.current) return;
+    isLockedRef.current = true;
     setIsLocked(true);
     setLoading(true);
 
@@ -143,6 +145,7 @@ export default function ScannerInterface() {
         }, 3500);
       } else {
         setErrorMsg(response.error || 'Check-in failed');
+        isLockedRef.current = false;
         setIsLocked(false);
         // Restart scanner on error
         startScanner();
@@ -150,6 +153,7 @@ export default function ScannerInterface() {
     } catch (err) {
       console.error(err);
       setErrorMsg('Network error. Check connection and try again.');
+      isLockedRef.current = false;
       setIsLocked(false);
       // Restart scanner on network error
       startScanner();
@@ -171,6 +175,7 @@ export default function ScannerInterface() {
 
   const closeOverlay = () => {
     setResultOverlay(null);
+    isLockedRef.current = false;
     setIsLocked(false);
     setErrorMsg(null);
     // Restart scanner
@@ -319,7 +324,7 @@ export default function ScannerInterface() {
             <div className="space-y-2">
               <h1 className="text-5xl font-black font-display tracking-wider uppercase">
                 {resultOverlay.outcome === 'verified' && 'VERIFIED'}
-                {resultOverlay.outcome === 'already_checked_in' && 'ALREADY IN'}
+                {resultOverlay.outcome === 'already_checked_in' && 'ALREADY VERIFIED'}
                 {resultOverlay.outcome === 'not_found' && 'NOT REGISTERED'}
               </h1>
               <p className="text-sm font-medium tracking-wide uppercase opacity-75">

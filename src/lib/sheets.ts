@@ -271,24 +271,8 @@ export async function markCheckedIn(
     throw new Error('Invalid row ID format');
   }
 
-  const { data: currentReg, error: fetchError } = await supabase!
-    .from('registrations')
-    .select('*')
-    .eq('row_id', id)
-    .maybeSingle();
-
-  if (fetchError || !currentReg) {
-    throw new Error(fetchError?.message || `Registration not found in Supabase with id ${id}`);
-  }
-
-  if (currentReg.status === 'checked_in') {
-    return {
-      outcome: 'already_checked_in',
-      registration: { ...currentReg, row_id: String(currentReg.row_id) },
-    };
-  }
-
   const checked_in_at = new Date().toISOString();
+  // Atomically update ONLY if status is still 'registered' to prevent race conditions
   const { data: updatedReg, error: updateError } = await supabase!
     .from('registrations')
     .update({
@@ -297,11 +281,30 @@ export async function markCheckedIn(
       checked_in_by: staffEmail,
     })
     .eq('row_id', id)
+    .eq('status', 'registered')
     .select()
-    .single();
+    .maybeSingle();
 
-  if (updateError || !updatedReg) {
-    throw new Error(updateError?.message || 'Failed to update check-in status in Supabase');
+  if (updateError) {
+    throw new Error(updateError.message || 'Failed to update check-in status in Supabase');
+  }
+
+  // If no row was updated, it means it was already checked_in by another user or scan
+  if (!updatedReg) {
+    const { data: currentReg, error: fetchError } = await supabase!
+      .from('registrations')
+      .select('*')
+      .eq('row_id', id)
+      .maybeSingle();
+
+    if (fetchError || !currentReg) {
+      throw new Error(fetchError?.message || `Registration not found in Supabase with id ${id}`);
+    }
+
+    return {
+      outcome: 'already_checked_in',
+      registration: { ...currentReg, row_id: String(currentReg.row_id) },
+    };
   }
 
   return {
