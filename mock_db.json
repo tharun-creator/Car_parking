@@ -1,0 +1,84 @@
+{
+  "registrations": [
+    {
+      "row_id": "2",
+      "user_email": "test@example.com",
+      "name": "Test User",
+      "phone_number": "1234567890",
+      "role": "Participant",
+      "role_other_detail": "",
+      "qr_token": "mock-qr-token-12345",
+      "backup_code": "ABCD",
+      "status": "registered",
+      "checked_in_at": "",
+      "checked_in_by": "",
+      "created_at": "2026-07-17T10:36:01.935Z",
+      "password_hash": ""
+    },
+    {
+      "row_id": "3",
+      "user_email": "staff@example.com",
+      "name": "Staff Member",
+      "phone_number": "0987654321",
+      "role": "Staff",
+      "role_other_detail": "",
+      "qr_token": "mock-qr-token-staff",
+      "backup_code": "EFGH",
+      "status": "registered",
+      "checked_in_at": "",
+      "checked_in_by": "",
+      "created_at": "2026-07-17T10:36:01.935Z",
+      "password_hash": ""
+    },
+    {
+      "row_id": "4",
+      "user_email": "tharunriot@gmail.com",
+      "name": "THARUN KUMAR.H",
+      "phone_number": "+916374002437",
+      "role": "crew",
+      "role_other_detail": "",
+      "qr_token": "be88d0dc-1391-400b-80b9-45549eaf483f",
+      "backup_code": "2X4Y",
+      "status": "registered",
+      "checked_in_at": "",
+      "checked_in_by": "",
+      "created_at": "2026-07-17T10:37:48.738Z",
+      "password_hash": "$2b$10$9bXQxi6UxgNdoKyVziURLOmoRjS9Hlr7BOBrj0nxryJTSsVS73iAm"
+    },
+    {
+      "row_id": "5",
+      "user_email": "gojosatorou375@gmail.com",
+      "name": "THARUN KUMAR.H",
+      "phone_number": "+916374002437",
+      "role": "crew",
+      "role_other_detail": "",
+      "qr_token": "ac53842b-0e9f-4b36-b90f-8227146f0f83",
+      "backup_code": "ZEYS",
+      "status": "registered",
+      "checked_in_at": "",
+      "checked_in_by": "",
+      "created_at": "2026-07-17T11:04:58.196Z",
+      "password_hash": "$2b$10$3Awd6yjHsWEs3PnEwrfEXOlefG7lArvlwfIeS9waZB5ml7WpFHuNy"
+    },
+    {
+      "row_id": "6",
+      "user_email": "tharunkumar200431@gmail.com",
+      "name": "tharun kumar",
+      "phone_number": "6374002437",
+      "role": "volunteer",
+      "role_other_detail": "",
+      "qr_token": "a29c8fbd-98d5-4549-b601-60d2f5c78d77",
+      "backup_code": "QRGS",
+      "status": "registered",
+      "checked_in_at": "",
+      "checked_in_by": "",
+      "created_at": "2026-07-17T18:41:02.213Z",
+      "password_hash": "$2b$10$EYkzlmIitvD4vK0nmrpqguJkofGDylBkgLnZmkzxeeq8mbMzQhRlW"
+    }
+  ],
+  "staff": [
+    "staff@example.com",
+    "mohan@gmail.com",
+    "tharunriot@gmail.com"
+  ]
+}
