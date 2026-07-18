@@ -368,22 +368,35 @@ export async function appendScanLog(entry: ScanLogEntry): Promise<void> {
     });
 }
 
-// 7b. Get recent scans (with registration details)
-export async function getRecentScans(limit: number = 20): Promise<ScanLogEntry[]> {
+// 7b. Get recent scans (with registration details) - paginated
+export async function getRecentScans(page: number = 1, limit: number = 10): Promise<{ logs: ScanLogEntry[]; total: number }> {
+  const skip = (page - 1) * limit;
+
   if (isFallbackMode()) {
     const mockData = readMockData();
-    // Return the latest logs first
-    return [...mockData.scanLogs].reverse().slice(0, limit);
+    const sortedLogs = [...mockData.scanLogs].reverse();
+    const paginatedLogs = sortedLogs.slice(skip, skip + limit);
+    return {
+      logs: paginatedLogs,
+      total: sortedLogs.length
+    };
   }
+
+  // Fetch total count
+  const { count, error: countError } = await supabase!
+    .from('scan_log')
+    .select('*', { count: 'exact', head: true });
+
+  const total = count || 0;
 
   const { data, error } = await supabase!
     .from('scan_log')
     .select('*')
     .order('timestamp', { ascending: false })
-    .limit(limit);
+    .range(skip, skip + limit - 1);
 
-  if (error || !data) return [];
-  return data as ScanLogEntry[];
+  if (error || !data) return { logs: [], total };
+  return { logs: data as ScanLogEntry[], total };
 }
 
 // 8. Bulk create registrations

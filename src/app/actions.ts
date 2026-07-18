@@ -307,8 +307,8 @@ export async function generateBulkRegistrationsAction(payload: {
   }
 }
 
-// 5. Action: Get recent scans for ledger display
-export async function getRecentScansAction() {
+// 5. Action: Get recent scans for ledger display - paginated
+export async function getRecentScansAction(page: number = 1, limit: number = 10) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     return { success: false, error: 'Not authenticated' };
@@ -320,8 +320,8 @@ export async function getRecentScansAction() {
   }
 
   try {
-    const logs = await getRecentScans(30);
-    return { success: true, logs };
+    const result = await getRecentScans(page, limit);
+    return { success: true, logs: result.logs, total: result.total };
   } catch (error) {
     console.error('Error in getRecentScansAction server action:', error);
     return { success: false, error: 'Failed to fetch recent scans' };

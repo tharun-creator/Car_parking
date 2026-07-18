@@ -23,6 +23,9 @@ export default function ScannerInterface() {
   const [cameraPermission, setCameraPermission] = useState<boolean | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [logs, setLogs] = useState<ScanLogEntry[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalLogs, setTotalLogs] = useState(0);
+  const logsPerPage = 10;
   
   // Status Overlays
   const [resultOverlay, setResultOverlay] = useState<ScanResult | null>(null);
@@ -244,11 +247,13 @@ export default function ScannerInterface() {
     startScanner();
   };
 
-  const fetchLogs = async () => {
+  const fetchLogs = async (page: number = currentPage) => {
     try {
-      const res = await getRecentScansAction();
-      if (res.success && res.logs) {
+      const res = await getRecentScansAction(page, logsPerPage);
+      if (res.success && res.logs && res.total !== undefined) {
         setLogs(res.logs);
+        setTotalLogs(res.total);
+        setCurrentPage(page);
       }
     } catch (e) {
       console.error('Error fetching logs:', e);
@@ -257,7 +262,7 @@ export default function ScannerInterface() {
 
   // Auto-start scanner on load and fetch recent scan logs
   useEffect(() => {
-    fetchLogs();
+    fetchLogs(1);
     const timer = setTimeout(() => {
       startScanner();
     }, 0);
@@ -469,6 +474,36 @@ export default function ScannerInterface() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination controls */}
+        {totalLogs > logsPerPage && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-900 text-xs">
+            <span className="text-slate-400 text-center sm:text-left">
+              Showing {Math.min((currentPage - 1) * logsPerPage + 1, totalLogs)} - {Math.min(currentPage * logsPerPage, totalLogs)} of {totalLogs} scans
+            </span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={currentPage === 1 || loading}
+                onClick={() => fetchLogs(currentPage - 1)}
+                className="px-3 py-1.5 bg-slate-900 border border-slate-800 text-slate-300 hover:text-white rounded-xl disabled:opacity-40 disabled:hover:text-slate-300 transition-all font-semibold cursor-pointer disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <span className="text-slate-300 font-medium whitespace-nowrap">
+                Page {currentPage} of {Math.ceil(totalLogs / logsPerPage)}
+              </span>
+              <button
+                type="button"
+                disabled={currentPage >= Math.ceil(totalLogs / logsPerPage) || loading}
+                onClick={() => fetchLogs(currentPage + 1)}
+                className="px-3 py-1.5 bg-slate-900 border border-slate-800 text-slate-300 hover:text-white rounded-xl disabled:opacity-40 disabled:hover:text-slate-300 transition-all font-semibold cursor-pointer disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Floating GPay-Style Card Result Toast overlaying bottom half */}
