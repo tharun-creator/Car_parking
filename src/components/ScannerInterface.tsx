@@ -121,26 +121,32 @@ export default function ScannerInterface() {
       gain.connect(ctx.destination);
 
       if (type === 'verified') {
+        // High-pitch double chime (satisfying success sound)
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
-        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.08); // A5
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
         osc.start();
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
-        osc.stop(ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime + 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+        osc.stop(ctx.currentTime + 0.35);
       } else if (type === 'already_checked_in') {
+        // Double tone warning (lower pitch)
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(440, ctx.currentTime); // A4
+        osc.frequency.setValueAtTime(349.23, ctx.currentTime + 0.1); // F4
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+        osc.stop(ctx.currentTime + 0.4);
+      } else {
+        // Buzzer (error sound)
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(120, ctx.currentTime);
         gain.gain.setValueAtTime(0.12, ctx.currentTime);
         osc.start();
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
-        osc.stop(ctx.currentTime + 0.25);
-      } else {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(150, ctx.currentTime); // Low buzz
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        osc.start();
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
-        osc.stop(ctx.currentTime + 0.35);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.stop(ctx.currentTime + 0.3);
       }
     } catch (e) {
       console.warn('Web Audio API not supported or blocked by user gesture:', e);
@@ -153,11 +159,6 @@ export default function ScannerInterface() {
     isLockedRef.current = true;
     setIsLocked(true);
     setLoading(true);
-
-    // Vibrate device if supported
-    if (typeof window !== 'undefined' && window.navigator.vibrate) {
-      window.navigator.vibrate(100);
-    }
 
     try {
       const response = await verifyAndCheckIn(params);
@@ -176,12 +177,24 @@ export default function ScannerInterface() {
         // Play outcome sound
         playBeep(response.outcome);
 
-        // Auto-close overlay after 1.5 seconds (reduced for faster throughput)
+        // Vibrate device if supported based on scan outcome
+        if (typeof window !== 'undefined' && window.navigator.vibrate) {
+          if (response.outcome === 'verified') {
+            window.navigator.vibrate([80, 50, 80]); // Quick double pulse
+          } else if (response.outcome === 'already_checked_in') {
+            window.navigator.vibrate([150, 100, 150]); // Longer warning pulses
+          }
+        }
+
+        // Auto-close overlay after 2 seconds
         setTimeout(() => {
           closeOverlay();
-        }, 1500);
+        }, 2000);
       } else {
         playBeep('not_found');
+        if (typeof window !== 'undefined' && window.navigator.vibrate) {
+          window.navigator.vibrate(300); // Long single buzz
+        }
         setErrorMsg(response.error || 'Check-in failed');
         isLockedRef.current = false;
         setIsLocked(false);
@@ -189,6 +202,9 @@ export default function ScannerInterface() {
     } catch (err) {
       console.error(err);
       playBeep('not_found');
+      if (typeof window !== 'undefined' && window.navigator.vibrate) {
+        window.navigator.vibrate(300);
+      }
       setErrorMsg('Network error. Check connection and try again.');
       isLockedRef.current = false;
       setIsLocked(false);
@@ -250,10 +266,10 @@ export default function ScannerInterface() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
         {/* Column 1: QR Camera View */}
-        <div className="glass-panel p-6 rounded-3xl flex flex-col justify-between items-center space-y-4">
-          <div className="w-full flex items-center justify-between">
+        <div className="glass-panel p-6 rounded-3xl flex flex-col justify-between items-center space-y-4 relative overflow-hidden">
+          <div className="w-full flex items-center justify-between z-10">
             <div className="flex items-center gap-2">
               <QrCode className="text-emerald-400" size={20} />
               <span className="font-semibold text-sm">Camera Gate Scanner</span>
@@ -267,27 +283,34 @@ export default function ScannerInterface() {
           {/* HTML5 Qr Code Target Box with outcome border glow */}
           <div className={`w-full aspect-square bg-slate-950 rounded-2xl border-2 overflow-hidden flex items-center justify-center relative transition-all duration-300 ${
             resultOverlay?.outcome === 'verified'
-              ? 'border-emerald-500 shadow-lg shadow-emerald-500/25 ring-2 ring-emerald-500/20'
+              ? 'border-emerald-500 shadow-[0_0_25px_rgba(16,185,129,0.3)] ring-2 ring-emerald-500/20'
               : resultOverlay?.outcome === 'already_checked_in'
-              ? 'border-amber-500 shadow-lg shadow-amber-500/25 ring-2 ring-amber-500/20'
+              ? 'border-amber-500 shadow-[0_0_25px_rgba(245,158,11,0.3)] ring-2 ring-amber-500/20'
               : resultOverlay?.outcome === 'not_found' || errorMsg
-              ? 'border-rose-500 shadow-lg shadow-rose-500/25 ring-2 ring-rose-500/20'
+              ? 'border-rose-500 shadow-[0_0_25px_rgba(244,63,94,0.3)] ring-2 ring-rose-500/20'
               : scannerActive
-              ? 'border-dashed border-slate-800'
+              ? 'border-slate-800'
               : 'border-slate-800'
           }`}>
 
             <div id={qrRegionId} className="w-full h-full object-cover"></div>
             
-            {/* Overlay Grid lines inside scanner */}
+            {/* Viewfinder with GPay cutout & laser */}
             {scannerActive && (
-              <div className="absolute inset-0 border-[32px] border-black/40 pointer-events-none flex items-center justify-center">
-                <div className="w-48 h-48 border-2 border-emerald-500/60 rounded-xl relative">
-                  <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-emerald-400 -mt-1 -ml-1"></div>
-                  <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-emerald-400 -mt-1 -mr-1"></div>
-                  <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-emerald-400 -mb-1 -ml-1"></div>
-                  <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-emerald-400 -mb-1 -mr-1"></div>
-                  <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-emerald-500/80 animate-bounce"></div>
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                {/* Dark Mask surrounding the viewfinder */}
+                <div className="absolute inset-0 bg-slate-950/40"></div>
+                
+                {/* Viewfinder target box */}
+                <div className="w-56 h-56 border-2 border-slate-700/50 rounded-2xl relative bg-transparent shadow-[0_0_0_9999px_rgba(15,23,42,0.45)]">
+                  {/* Neon Glow Corners */}
+                  <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl -mt-1 -ml-1"></div>
+                  <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl -mt-1 -mr-1"></div>
+                  <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl -mb-1 -ml-1"></div>
+                  <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-emerald-400 rounded-br-xl -mb-1 -mr-1"></div>
+                  
+                  {/* Laser line scanner animation */}
+                  <div className="absolute left-0 right-0 h-1 bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)] animate-laser"></div>
                 </div>
               </div>
             )}
@@ -295,7 +318,7 @@ export default function ScannerInterface() {
             {!scannerActive && (
               <button
                 onClick={startScanner}
-                className="absolute inset-0 bg-slate-900/90 hover:bg-slate-900 flex flex-col items-center justify-center gap-2 p-4 transition-colors"
+                className="absolute inset-0 bg-slate-900/90 hover:bg-slate-900 flex flex-col items-center justify-center gap-2 p-4 transition-colors z-20"
               >
                 <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl">
                   <RefreshCw size={24} />
@@ -343,84 +366,93 @@ export default function ScannerInterface() {
             Use backup code when the QR is damaged, glare is high, or screen is cracked.
           </div>
         </div>
-      </div>
 
-      {/* Lookup State Overlay (Fixed full-screen) */}
-      {resultOverlay && (
-        <div
-          className={`fixed inset-0 z-50 flex flex-col items-center justify-center p-6 transition-all duration-300 ${
-            resultOverlay.outcome === 'verified'
-              ? 'bg-emerald-950 text-emerald-100'
-              : resultOverlay.outcome === 'already_checked_in'
-              ? 'bg-amber-950 text-amber-100'
-              : 'bg-rose-950 text-rose-100'
-          }`}
-        >
-          {/* Main Overlay Box */}
-          <div className="text-center max-w-md w-full space-y-8 animate-scaleIn">
-            {/* Status Icon */}
-            <div className="mx-auto w-24 h-24 rounded-full flex items-center justify-center bg-white/10 border-4 border-white/20">
-              {resultOverlay.outcome === 'verified' && <CheckCircle size={56} className="text-emerald-400" />}
-              {resultOverlay.outcome === 'already_checked_in' && <AlertCircle size={56} className="text-amber-400" />}
-              {resultOverlay.outcome === 'not_found' && <X size={56} className="text-rose-400" />}
-            </div>
-
-            {/* Status Text Banner */}
-            <div className="space-y-2">
-              <h1 className="text-5xl font-black font-display tracking-wider uppercase">
-                {resultOverlay.outcome === 'verified' && 'VERIFIED'}
-                {resultOverlay.outcome === 'already_checked_in' && 'ALREADY VERIFIED'}
-                {resultOverlay.outcome === 'not_found' && 'NOT REGISTERED'}
-              </h1>
-              <p className="text-sm font-medium tracking-wide uppercase opacity-75">
-                {resultOverlay.outcome === 'verified' && 'Gate access approved'}
-                {resultOverlay.outcome === 'already_checked_in' && 'Duplicate ticket scan'}
-                {resultOverlay.outcome === 'not_found' && 'This person is not registered'}
-              </p>
-            </div>
-
-            {/* Registrant Meta Details */}
-            {resultOverlay.outcome !== 'not_found' && (
-              <div className="glass-panel p-6 rounded-3xl space-y-3 bg-black/35 text-left border-white/10">
-                <div>
-                  <span className="text-[10px] uppercase font-bold tracking-wider opacity-60 block">Full Name</span>
-                  <span className="text-xl font-bold text-white block">{resultOverlay.name}</span>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-[10px] uppercase font-bold tracking-wider opacity-60 block">Role</span>
-                    <span className="text-sm font-semibold text-white capitalize block">
-                      {resultOverlay.role === 'other' ? resultOverlay.role_other_detail : resultOverlay.role}
-                    </span>
+        {/* Floating GPay-Style Card Result Toast overlaying bottom half */}
+        {resultOverlay && (
+          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-xs z-30 flex items-end p-4 rounded-3xl animate-fadeIn">
+            <div className="w-full bg-slate-900/95 border border-slate-800 backdrop-blur-xl p-5 rounded-3xl shadow-2xl space-y-4 animate-slideUp">
+              {/* Header with Close and Icon */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2.5 rounded-2xl ${
+                    resultOverlay.outcome === 'verified'
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      : resultOverlay.outcome === 'already_checked_in'
+                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                  }`}>
+                    {resultOverlay.outcome === 'verified' && <CheckCircle size={22} className="animate-bounce" />}
+                    {resultOverlay.outcome === 'already_checked_in' && <AlertCircle size={22} />}
+                    {resultOverlay.outcome === 'not_found' && <X size={22} />}
                   </div>
                   <div>
-                    <span className="text-[10px] uppercase font-bold tracking-wider opacity-60 block">Email</span>
-                    <span className="text-xs font-semibold text-slate-200 block truncate">{resultOverlay.user_email}</span>
+                    <h3 className="font-bold text-base text-white">
+                      {resultOverlay.outcome === 'verified' && 'Access Approved'}
+                      {resultOverlay.outcome === 'already_checked_in' && 'Already Scanned'}
+                      {resultOverlay.outcome === 'not_found' && 'Access Denied'}
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      {resultOverlay.outcome === 'verified' && 'Pass verified successfully'}
+                      {resultOverlay.outcome === 'already_checked_in' && 'Duplicate pass scan detected'}
+                      {resultOverlay.outcome === 'not_found' && 'This pass is not registered'}
+                    </p>
                   </div>
                 </div>
-
-                {resultOverlay.outcome === 'already_checked_in' && (
-                  <div className="pt-2 mt-2 border-t border-white/10">
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-amber-400 block">First Checked In At</span>
-                    <span className="text-xs font-medium text-white block">
-                      {resultOverlay.checked_in_at ? new Date(resultOverlay.checked_in_at).toLocaleTimeString() : 'N/A'} (by {resultOverlay.checked_in_by})
-                    </span>
-                  </div>
-                )}
+                <button
+                  onClick={closeOverlay}
+                  className="p-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-all"
+                >
+                  <X size={16} />
+                </button>
               </div>
-            )}
 
-            {/* Close / Action bar */}
-            <button
-              onClick={closeOverlay}
-              className="px-8 py-3 bg-white hover:bg-slate-100 text-slate-950 font-bold rounded-2xl active:scale-[0.98] transition-all text-sm"
-            >
-              Continue Scanning
-            </button>
+              {/* Details content */}
+              {resultOverlay.outcome !== 'not_found' && (
+                <div className="bg-slate-950/60 border border-slate-800/40 p-4 rounded-2xl space-y-3">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Name</span>
+                      <span className="text-sm font-semibold text-slate-100 block truncate">{resultOverlay.name}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Role</span>
+                      <span className="text-sm font-semibold text-emerald-400 block capitalize truncate">
+                        {resultOverlay.role === 'other' ? resultOverlay.role_other_detail : resultOverlay.role}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-900">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Email</span>
+                      <span className="text-xs text-slate-300 block truncate">{resultOverlay.user_email}</span>
+                    </div>
+                    {resultOverlay.outcome === 'already_checked_in' && (
+                      <div>
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-amber-500">First Scan</span>
+                        <span className="text-xs text-slate-300 block truncate">
+                          {resultOverlay.checked_in_at ? new Date(resultOverlay.checked_in_at).toLocaleTimeString() : ''} by {resultOverlay.checked_in_by}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Continue scanning / auto-resume footer */}
+              <div className="flex justify-between items-center pt-2">
+                <span className="text-[10px] text-slate-500 animate-pulse">Auto-resuming scanner...</span>
+                <button
+                  onClick={closeOverlay}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl active:scale-[0.98] transition-all text-xs"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
