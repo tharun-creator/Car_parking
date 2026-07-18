@@ -185,6 +185,7 @@ export function RegistrationForm() {
             <option value="artist" className="bg-slate-950">Artist</option>
             <option value="vip" className="bg-slate-950">VIP</option>
             <option value="government" className="bg-slate-950">Government / Official</option>
+            <option value="media" className="bg-slate-950">Media</option>
             <option value="other" className="bg-slate-950">Other</option>
           </select>
           <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none text-slate-500">

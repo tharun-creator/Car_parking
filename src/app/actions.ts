@@ -23,7 +23,7 @@ const registrationSchema = z.object({
     .min(6, 'Phone number must be at least 6 digits')
     .max(20, 'Phone number is too long')
     .regex(/^[\s()+-]*([0-9][\s()+-]*){6,20}$/, 'Invalid phone number format'),
-  role: z.enum(['crew', 'volunteer', 'artist', 'vip', 'government', 'other'] as const),
+  role: z.enum(['crew', 'volunteer', 'artist', 'vip', 'government', 'media', 'other'] as const),
   role_other_detail: z.string().max(200).optional(),
 }).refine(data => {
   if (data.role === 'other') {
@@ -120,7 +120,7 @@ const credentialsRegistrationSchema = z.object({
     .min(6, 'Phone number must be at least 6 digits')
     .max(20, 'Phone number is too long')
     .regex(/^[\s()+-]*([0-9][\s()+-]*){6,20}$/, 'Invalid phone number format'),
-  role: z.enum(['crew', 'volunteer', 'artist', 'vip', 'government', 'other'] as const),
+  role: z.enum(['crew', 'volunteer', 'artist', 'vip', 'government', 'media', 'other'] as const),
   role_other_detail: z.string().max(200).optional(),
 }).refine(data => {
   if (data.role === 'other') {
@@ -269,3 +269,39 @@ export async function verifyAndCheckIn(payload: {
     return { success: false, error: 'Internal database error during check-in' };
   }
 }
+
+// 4. Action: Generate Bulk Registrations
+export async function generateBulkRegistrationsAction(payload: {
+  role: string;
+  roleOtherDetail?: string;
+  count: number;
+  prefix?: string;
+}) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return { success: false, error: 'Not authenticated' };
+  }
+
+  const isStaffUser = await isStaff(session.user.email);
+  if (!isStaffUser) {
+    return { success: false, error: 'Access denied: staff only' };
+  }
+
+  const count = Math.min(Math.max(1, payload.count), 250); // limit bulk size to 250 per request
+  
+  try {
+    const { createBulkRegistrations } = await import('@/lib/sheets');
+    const registrations = await createBulkRegistrations({
+      role: payload.role,
+      role_other_detail: payload.roleOtherDetail || '',
+      count,
+      prefix: payload.prefix || 'Bulk Pass',
+    });
+
+    return { success: true, registrations };
+  } catch (error) {
+    console.error('Error during bulk registration generation:', error);
+    return { success: false, error: 'Failed to generate bulk registrations' };
+  }
+}
+

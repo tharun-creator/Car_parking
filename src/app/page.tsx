@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { getRegistrationByEmail, isStaff } from '@/lib/sheets';
 import { AuthPortal } from '@/components/AuthPortal';
 import { SignOutButton } from '@/components/SignOutButton';
-import { QrCode, LogOut } from 'lucide-react';
+import { QrCode, LogOut, Layers } from 'lucide-react';
 
 export default async function Home() {
   const session = await getServerSession(authOptions);
@@ -66,6 +66,25 @@ export default async function Home() {
                 </div>
               </div>
               <svg className="h-4 w-4 text-[#888]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </a>
+
+            {/* Bulk QR Generator for Admin */}
+            <a
+              href="/admin/bulk-qr"
+              className="vercel-card flex items-center justify-between p-4 hover:border-white transition-colors duration-150 border-blue-900/30 bg-blue-950/5"
+            >
+              <div className="flex items-center gap-4">
+                <div className="p-2 bg-blue-950/40 border border-blue-900/40 rounded-md text-blue-400">
+                  <Layers size={18} />
+                </div>
+                <div className="text-left">
+                  <span className="block text-sm font-semibold text-blue-300">Bulk QR Generator</span>
+                  <span className="text-[11px] text-blue-400/70">Create and download passes in ZIP</span>
+                </div>
+              </div>
+              <svg className="h-4 w-4 text-blue-400/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </a>

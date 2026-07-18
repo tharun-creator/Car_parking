@@ -296,6 +296,7 @@ export function AuthPortal() {
               <option value="artist">Artist</option>
               <option value="vip">VIP</option>
               <option value="government">Government / Official</option>
+              <option value="media">Media</option>
               <option value="other">Other</option>
             </select>
             {errors.role && <p className="text-red-400 text-[10px] mt-0.5">{errors.role[0]}</p>}

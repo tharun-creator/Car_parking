@@ -108,17 +108,48 @@ export default function ScannerInterface() {
     setScannerActive(false);
   };
 
+  // Synthesize professional beep sounds using Web Audio API
+  const playBeep = (type: 'verified' | 'already_checked_in' | 'not_found') => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      if (type === 'verified') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+        osc.stop(ctx.currentTime + 0.15);
+      } else if (type === 'already_checked_in') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(440, ctx.currentTime); // A4
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
+        osc.stop(ctx.currentTime + 0.25);
+      } else {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, ctx.currentTime); // Low buzz
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+        osc.stop(ctx.currentTime + 0.35);
+      }
+    } catch (e) {
+      console.warn('Web Audio API not supported or blocked by user gesture:', e);
+    }
+  };
+
   const handleLookup = async (params: { token?: string; code?: string; method: 'qr' | 'manual_code' }) => {
     // Prevent double scan / rate limit lookup using synchronous ref lock
     if (isLockedRef.current) return;
     isLockedRef.current = true;
     setIsLocked(true);
     setLoading(true);
-
-    // Stop scanning while displaying result overlay to avoid double reads
-    if (scannerActive) {
-      await stopScanner();
-    }
 
     // Vibrate device if supported
     if (typeof window !== 'undefined' && window.navigator.vibrate) {
@@ -139,24 +170,25 @@ export default function ScannerInterface() {
           checked_in_by: response.checked_in_by,
         });
 
-        // Auto-close overlay after 3.5 seconds and restart scanner
+        // Play outcome sound
+        playBeep(response.outcome);
+
+        // Auto-close overlay after 2.5 seconds (reduced for faster throughput)
         setTimeout(() => {
           closeOverlay();
-        }, 3500);
+        }, 2500);
       } else {
+        playBeep('not_found');
         setErrorMsg(response.error || 'Check-in failed');
         isLockedRef.current = false;
         setIsLocked(false);
-        // Restart scanner on error
-        startScanner();
       }
     } catch (err) {
       console.error(err);
+      playBeep('not_found');
       setErrorMsg('Network error. Check connection and try again.');
       isLockedRef.current = false;
       setIsLocked(false);
-      // Restart scanner on network error
-      startScanner();
     } finally {
       setLoading(false);
     }
@@ -178,8 +210,7 @@ export default function ScannerInterface() {
     isLockedRef.current = false;
     setIsLocked(false);
     setErrorMsg(null);
-    // Restart scanner
-    startScanner();
+    // Camera is kept running, so no startScanner needed here
   };
 
   // Auto-start scanner on load
@@ -230,8 +261,19 @@ export default function ScannerInterface() {
             </div>
           </div>
 
-          {/* HTML5 Qr Code Target Box */}
-          <div className="w-full aspect-square bg-slate-950 rounded-2xl border-2 border-dashed border-slate-800 overflow-hidden flex items-center justify-center relative">
+          {/* HTML5 Qr Code Target Box with outcome border glow */}
+          <div className={`w-full aspect-square bg-slate-950 rounded-2xl border-2 overflow-hidden flex items-center justify-center relative transition-all duration-300 ${
+            resultOverlay?.outcome === 'verified'
+              ? 'border-emerald-500 shadow-lg shadow-emerald-500/25 ring-2 ring-emerald-500/20'
+              : resultOverlay?.outcome === 'already_checked_in'
+              ? 'border-amber-500 shadow-lg shadow-amber-500/25 ring-2 ring-amber-500/20'
+              : resultOverlay?.outcome === 'not_found' || errorMsg
+              ? 'border-rose-500 shadow-lg shadow-rose-500/25 ring-2 ring-rose-500/20'
+              : scannerActive
+              ? 'border-dashed border-slate-800'
+              : 'border-slate-800'
+          }`}>
+
             <div id={qrRegionId} className="w-full h-full object-cover"></div>
             
             {/* Overlay Grid lines inside scanner */}
