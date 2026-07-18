@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { verifyAndCheckIn, getRecentScansAction } from '@/app/actions';
-import { QrCode, Keyboard, AlertCircle, RefreshCw, X, CheckCircle, HelpCircle, History, UserCheck, UserX, Clock } from 'lucide-react';
+import { QrCode, Keyboard, AlertCircle, RefreshCw, X, CheckCircle, History, UserCheck, UserX, Clock } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { ScanLogEntry } from '@/lib/sheets';
 
@@ -27,10 +27,20 @@ export default function ScannerInterface() {
   const [totalLogs, setTotalLogs] = useState(0);
   const logsPerPage = 10;
   
-  // Status Overlays
-  const [resultOverlay, setResultOverlay] = useState<ScanResult | null>(null);
-  const [isLocked, setIsLocked] = useState(false); // Debounce lock
-  const isLockedRef = useRef(false); // Synchronous lock ref to prevent duplicate trigger races
+  // Continuous Scan States
+  const [lastScan, setLastScan] = useState<(ScanResult & { id: string }) | null>(null);
+  const scannedCooldowns = useRef<Map<string, number>>(new Map());
+
+  const lastScanRef = useRef<any>(null);
+  const loadingRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    lastScanRef.current = lastScan;
+  }, [lastScan]);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
 
   const qrRegionId = 'qr-reader-target';
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
@@ -51,12 +61,10 @@ export default function ScannerInterface() {
   }, []);
 
   // Initialize html5-qrcode
-  useEffect(() => {
-    // Only in browser
+  useEffect(() => { 
     html5QrCodeRef.current = new Html5Qrcode(qrRegionId);
 
     return () => {
-      // Clean up scanner on unmount
       if (html5QrCodeRef.current?.isScanning) {
         html5QrCodeRef.current.stop().catch(console.error);
       }
@@ -72,23 +80,34 @@ export default function ScannerInterface() {
       await html5QrCodeRef.current.start(
         { facingMode: 'environment' }, // Rear camera
         {
-          fps: 30, // Increased frame rate for faster scanning
+          fps: 30, // High frame rate for instant scans
           qrbox: (width: number, height: number) => {
-            const size = Math.min(width, height) * 0.7;
+            const size = Math.min(width, height) * 0.85; // Increased to 85% for easier mobile capture and faster focus
             return { width: size, height: size };
           },
           experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true, // Use native hardware-accelerated BarcodeDetector API if supported
+            useBarCodeDetectorIfSupported: true, // Hardware acceleration
           },
         } as any,
         async (decodedText) => {
-          // On Success scan
           if (decodedText) {
-            handleLookup({ token: decodedText, method: 'qr' });
+            // Ignore scan frames if status overlay is already showing or loading is in progress
+            if (lastScanRef.current || loadingRef.current) {
+              return;
+            }
+            const now = Date.now();
+            const lastTime = scannedCooldowns.current.get(decodedText);
+            
+            // Limit scanning the exact same code to once per 3 seconds
+            if (lastTime && now - lastTime < 3000) {
+              return;
+            }
+            scannedCooldowns.current.set(decodedText, now);
+            handleLookupContinuous({ token: decodedText, method: 'qr' });
           }
         },
         () => {
-          // silent failure on every frames search
+          // silent failure on empty frames
         }
       );
       setCameraPermission(true);
@@ -116,7 +135,6 @@ export default function ScannerInterface() {
     setScannerActive(false);
   };
 
-  // Synthesize professional beep sounds using Web Audio API
   const playBeep = (type: 'verified' | 'already_checked_in' | 'not_found') => {
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -126,26 +144,23 @@ export default function ScannerInterface() {
       gain.connect(ctx.destination);
 
       if (type === 'verified') {
-        // High-pitch double chime (satisfying success sound)
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.08); // A5
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.08);
         gain.gain.setValueAtTime(0.08, ctx.currentTime);
         osc.start();
         gain.gain.setValueAtTime(0.08, ctx.currentTime + 0.08);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
         osc.stop(ctx.currentTime + 0.35);
       } else if (type === 'already_checked_in') {
-        // Double tone warning (lower pitch)
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(440, ctx.currentTime); // A4
-        osc.frequency.setValueAtTime(349.23, ctx.currentTime + 0.1); // F4
+        osc.frequency.setValueAtTime(440, ctx.currentTime);
+        osc.frequency.setValueAtTime(349.23, ctx.currentTime + 0.1);
         gain.gain.setValueAtTime(0.1, ctx.currentTime);
         osc.start();
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
         osc.stop(ctx.currentTime + 0.4);
       } else {
-        // Buzzer (error sound)
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(120, ctx.currentTime);
         gain.gain.setValueAtTime(0.12, ctx.currentTime);
@@ -154,27 +169,21 @@ export default function ScannerInterface() {
         osc.stop(ctx.currentTime + 0.3);
       }
     } catch (e) {
-      console.warn('Web Audio API not supported or blocked by user gesture:', e);
+      console.warn('Audio feedback blocked by user gesture:', e);
     }
   };
 
-  const handleLookup = async (params: { token?: string; code?: string; method: 'qr' | 'manual_code' }) => {
-    // Prevent double scan / rate limit lookup using synchronous ref lock
-    if (isLockedRef.current) return;
-    isLockedRef.current = true;
-    setIsLocked(true);
+  const handleLookupContinuous = async (params: { token?: string; code?: string; method: 'qr' | 'manual_code' }) => {
     setLoading(true);
-
-    // Stop scanner camera immediately on successful read to prevent background scans
-    if (params.method === 'qr') {
-      await stopScanner();
-    }
+    setErrorMsg(null);
 
     try {
       const response = await verifyAndCheckIn(params);
 
       if (response.success && response.outcome) {
-        setResultOverlay({
+        const scanId = Math.random().toString(36).substring(2, 9);
+        const result: ScanResult & { id: string } = {
+          id: scanId,
           outcome: response.outcome,
           name: response.name,
           role: response.role,
@@ -182,46 +191,47 @@ export default function ScannerInterface() {
           user_email: response.user_email,
           checked_in_at: response.checked_in_at,
           checked_in_by: response.checked_in_by,
-        });
+        };
 
-        // Play outcome sound
+        setLastScan(result);
         playBeep(response.outcome);
 
-        // Vibrate device if supported based on scan outcome
         if (typeof window !== 'undefined' && window.navigator.vibrate) {
           if (response.outcome === 'verified') {
-            window.navigator.vibrate([80, 50, 80]); // Quick double pulse
+            window.navigator.vibrate([80, 50, 80]);
           } else if (response.outcome === 'already_checked_in') {
-            window.navigator.vibrate([150, 100, 150]); // Longer warning pulses
+            window.navigator.vibrate([150, 100, 150]);
           }
         }
 
-        // Refresh the ledger list immediately
+        // Auto-remove overlay after 2 seconds for faster scanning
+        setTimeout(() => {
+          setLastScan(prev => prev?.id === scanId ? null : prev);
+        }, 2000);
+
         fetchLogs();
       } else {
         playBeep('not_found');
         if (typeof window !== 'undefined' && window.navigator.vibrate) {
-          window.navigator.vibrate(300); // Long single buzz
+          window.navigator.vibrate(300);
         }
-        setErrorMsg(response.error || 'Check-in failed');
-        isLockedRef.current = false;
-        setIsLocked(false);
-        if (params.method === 'qr') {
-          startScanner();
-        }
+        
+        const scanId = Math.random().toString(36).substring(2, 9);
+        setLastScan({
+          id: scanId,
+          outcome: 'not_found'
+        });
+        
+        setTimeout(() => {
+          setLastScan(prev => prev?.id === scanId ? null : prev);
+        }, 2000);
+        
+        setErrorMsg(response.error || 'Access Denied: Ticket is invalid');
       }
     } catch (err) {
       console.error(err);
       playBeep('not_found');
-      if (typeof window !== 'undefined' && window.navigator.vibrate) {
-        window.navigator.vibrate(300);
-      }
-      setErrorMsg('Network error. Check connection and try again.');
-      isLockedRef.current = false;
-      setIsLocked(false);
-      if (params.method === 'qr') {
-        startScanner();
-      }
+      setErrorMsg('Network error occurred during lookup.');
     } finally {
       setLoading(false);
     }
@@ -234,17 +244,8 @@ export default function ScannerInterface() {
       setErrorMsg('Manual entry code must be exactly 4 characters.');
       return;
     }
-    handleLookup({ code: manualCode.trim().toUpperCase(), method: 'manual_code' });
+    handleLookupContinuous({ code: manualCode.trim().toUpperCase(), method: 'manual_code' });
     setManualCode('');
-  };
-
-  const closeOverlay = () => {
-    setResultOverlay(null);
-    isLockedRef.current = false;
-    setIsLocked(false);
-    setErrorMsg(null);
-    // Restart camera scanner after closing overlay details
-    startScanner();
   };
 
   const fetchLogs = async (page: number = currentPage) => {
@@ -260,7 +261,7 @@ export default function ScannerInterface() {
     }
   };
 
-  // Auto-start scanner on load and fetch recent scan logs
+  // Auto-start scanner on mount
   useEffect(() => {
     fetchLogs(1);
     const timer = setTimeout(() => {
@@ -274,11 +275,63 @@ export default function ScannerInterface() {
 
   return (
     <div className="space-y-6 relative">
+      {/* High-contrast Full-Screen Scan Result Overlay */}
+      {lastScan && (
+        <div className={`fixed inset-0 z-50 flex flex-col items-center justify-center p-6 text-center animate-fadeIn backdrop-blur-md border-y ${
+          lastScan.outcome === 'verified'
+            ? 'bg-emerald-950/98 border-emerald-500 text-emerald-400'
+            : lastScan.outcome === 'already_checked_in'
+            ? 'bg-amber-950/98 border-amber-500 text-amber-400'
+            : 'bg-rose-950/98 border-rose-500 text-rose-400'
+        }`}>
+          <div className={`p-5 rounded-full mb-4 ${
+            lastScan.outcome === 'verified'
+              ? 'bg-emerald-500/10'
+              : lastScan.outcome === 'already_checked_in'
+              ? 'bg-amber-500/10'
+              : 'bg-rose-500/10'
+          }`}>
+            {lastScan.outcome === 'verified' && <UserCheck size={64} />}
+            {lastScan.outcome === 'already_checked_in' && <AlertCircle size={64} />}
+            {lastScan.outcome === 'not_found' && <UserX size={64} />}
+          </div>
+
+          <h3 className="text-3xl sm:text-4xl font-black tracking-wider uppercase mb-3">
+            {lastScan.outcome === 'verified' && 'VERIFIED ACCESS'}
+            {lastScan.outcome === 'already_checked_in' && 'ALREADY IN'}
+            {lastScan.outcome === 'not_found' && 'NOT REGISTERED'}
+          </h3>
+
+          <div className="space-y-2 text-white max-w-sm">
+            <p className="text-xl sm:text-2xl font-bold">
+              {lastScan.name || lastScan.user_email || 'Invalid Pass'}
+            </p>
+            {lastScan.role && (
+              <p className="text-sm sm:text-base text-slate-300 font-medium capitalize">
+                Role: {lastScan.role === 'other' ? lastScan.role_other_detail : lastScan.role}
+              </p>
+            )}
+            {lastScan.checked_in_at && (
+              <p className="text-xs text-slate-400">
+                Scanned at: {new Date(lastScan.checked_in_at).toLocaleTimeString()}
+              </p>
+            )}
+          </div>
+
+          <button
+            onClick={() => setLastScan(null)}
+            className="mt-8 px-8 py-3 text-sm font-bold bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-2xl transition-all"
+          >
+            Scan Next Pass
+          </button>
+        </div>
+      )}
+
       {/* Network Blip State */}
       {!isOnline && (
         <div className="p-3 bg-amber-500/20 border border-amber-500/40 rounded-2xl flex items-center justify-center gap-2 text-amber-400 text-xs font-semibold animate-pulse">
           <RefreshCw size={14} className="animate-spin" />
-          <span>Connection Lost. Scanner will queue requests once reconnected.</span>
+          <span>Connection Lost. Scanner will sync once reconnected.</span>
         </div>
       )}
 
@@ -311,38 +364,33 @@ export default function ScannerInterface() {
 
           {/* HTML5 Qr Code Target Box with outcome border glow */}
           <div className={`w-full aspect-square bg-slate-950 rounded-2xl border-2 overflow-hidden flex items-center justify-center relative transition-all duration-300 ${
-            resultOverlay?.outcome === 'verified'
+            lastScan?.outcome === 'verified'
               ? 'border-emerald-500 shadow-[0_0_25px_rgba(16,185,129,0.3)] ring-2 ring-emerald-500/20'
-              : resultOverlay?.outcome === 'already_checked_in'
+              : lastScan?.outcome === 'already_checked_in'
               ? 'border-amber-500 shadow-[0_0_25px_rgba(245,158,11,0.3)] ring-2 ring-amber-500/20'
-              : resultOverlay?.outcome === 'not_found' || errorMsg
+              : lastScan?.outcome === 'not_found'
               ? 'border-rose-500 shadow-[0_0_25px_rgba(244,63,94,0.3)] ring-2 ring-rose-500/20'
-              : scannerActive
-              ? 'border-slate-800'
               : 'border-slate-800'
           }`}>
 
             <div id={qrRegionId} className="w-full h-full object-cover"></div>
             
-            {/* Viewfinder with GPay cutout & laser */}
+            {/* Viewfinder with corners & laser line */}
             {scannerActive && (
               <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                {/* Dark Mask surrounding the viewfinder */}
                 <div className="absolute inset-0 bg-slate-950/40"></div>
-                
-                {/* Viewfinder target box */}
                 <div className="w-56 h-56 border-2 border-slate-700/50 rounded-2xl relative bg-transparent shadow-[0_0_0_9999px_rgba(15,23,42,0.45)]">
-                  {/* Neon Glow Corners */}
                   <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl -mt-1 -ml-1"></div>
                   <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl -mt-1 -mr-1"></div>
                   <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl -mb-1 -ml-1"></div>
                   <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-emerald-400 rounded-br-xl -mb-1 -mr-1"></div>
                   
-                  {/* Laser line scanner animation */}
                   <div className="absolute left-0 right-0 h-1 bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)] animate-laser"></div>
                 </div>
               </div>
             )}
+
+            {/* Live Scan Notification Viewfinder Toast removed in favor of full screen overlay */}
 
             {!scannerActive && (
               <button
@@ -395,18 +443,17 @@ export default function ScannerInterface() {
             Use backup code when the QR is damaged, glare is high, or screen is cracked.
           </div>
         </div>
+      </div>
 
-        </div>
-
-      {/* Scan History Ledger Panel */}
-      <div className="glass-panel p-6 rounded-3xl space-y-4">
+      {/* Scan History Ledger Ledger Panel */}
+      <div className="glass-panel p-6 rounded-3xl space-y-4 max-w-full overflow-hidden">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <History className="text-emerald-400" size={20} />
             <h2 className="font-bold text-base text-slate-100">Scan Activity Ledger</h2>
           </div>
           <button 
-            onClick={fetchLogs} 
+            onClick={() => fetchLogs()} 
             className="text-xs flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white rounded-xl transition-all"
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -415,7 +462,7 @@ export default function ScannerInterface() {
         </div>
 
         <div className="overflow-x-auto rounded-2xl border border-slate-900">
-          <table className="w-full text-left text-xs border-collapse">
+          <table className="w-full text-left text-xs border-collapse whitespace-nowrap">
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-900 text-slate-400 font-semibold">
                 <th className="p-3">Time & Date</th>
@@ -505,92 +552,6 @@ export default function ScannerInterface() {
           </div>
         )}
       </div>
-
-      {/* Floating GPay-Style Card Result Toast overlaying bottom half */}
-      {resultOverlay && (
-        <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-xs z-30 flex items-end p-4 rounded-3xl animate-fadeIn">
-          <div className="w-full bg-slate-900/95 border border-slate-800 backdrop-blur-xl p-5 rounded-3xl shadow-2xl space-y-4 animate-slideUp">
-            {/* Header with Close and Icon */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className={`p-2.5 rounded-2xl ${
-                  resultOverlay.outcome === 'verified'
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    : resultOverlay.outcome === 'already_checked_in'
-                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                    : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                }`}>
-                  {resultOverlay.outcome === 'verified' && <CheckCircle size={22} className="animate-bounce" />}
-                  {resultOverlay.outcome === 'already_checked_in' && <AlertCircle size={22} />}
-                  {resultOverlay.outcome === 'not_found' && <X size={22} />}
-                </div>
-                <div>
-                  <h3 className="font-bold text-base text-white">
-                    {resultOverlay.outcome === 'verified' && 'Access Approved'}
-                    {resultOverlay.outcome === 'already_checked_in' && 'Already Scanned'}
-                    {resultOverlay.outcome === 'not_found' && 'Access Denied'}
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    {resultOverlay.outcome === 'verified' && 'Pass verified successfully'}
-                    {resultOverlay.outcome === 'already_checked_in' && 'Duplicate pass scan detected'}
-                    {resultOverlay.outcome === 'not_found' && 'This pass is not registered'}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={closeOverlay}
-                className="p-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-all"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Details content */}
-            {resultOverlay.outcome !== 'not_found' && (
-              <div className="bg-slate-950/60 border border-slate-800/40 p-4 rounded-2xl space-y-3">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Name</span>
-                    <span className="text-sm font-semibold text-slate-100 block truncate">{resultOverlay.name}</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Role</span>
-                    <span className="text-sm font-semibold text-emerald-400 block capitalize truncate">
-                      {resultOverlay.role === 'other' ? resultOverlay.role_other_detail : resultOverlay.role}
-                    </span>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-900">
-                  <div>
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Email</span>
-                    <span className="text-xs text-slate-300 block truncate">{resultOverlay.user_email}</span>
-                  </div>
-                  {resultOverlay.outcome === 'already_checked_in' && (
-                    <div>
-                      <span className="text-[10px] uppercase font-bold tracking-wider text-amber-500">First Scan</span>
-                      <span className="text-xs text-slate-300 block truncate">
-                        {resultOverlay.checked_in_at ? new Date(resultOverlay.checked_in_at).toLocaleTimeString() : ''} by {resultOverlay.checked_in_by}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Continue scanning / auto-resume footer */}
-            <div className="flex justify-between items-center pt-2">
-              <span className="text-[10px] text-slate-500">Scan paused. Ready to verify next.</span>
-              <button
-                onClick={closeOverlay}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl active:scale-[0.98] transition-all text-xs"
-              >
-                Continue Scanning
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

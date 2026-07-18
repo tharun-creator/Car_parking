@@ -7,6 +7,8 @@ import QRCode from 'qrcode';
 import { Car, Download, Shield, Sparkles, UserCheck } from 'lucide-react';
 import Link from 'next/link';
 
+import PdfDownloadButton from '@/components/PdfDownloadButton';
+
 export default async function MyCodePage() {
   const session = await getServerSession(authOptions);
 
@@ -42,14 +44,14 @@ export default async function MyCodePage() {
       <div className={`absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 ${isCheckedIn ? 'bg-amber-500/10' : 'bg-emerald-500/10'} rounded-full blur-[100px] pointer-events-none`}></div>
 
       {/* Header */}
-      <header className="relative z-10 w-full max-w-4xl mx-auto flex items-center justify-between">
+      <header className="relative z-10 w-full max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <Link href="/" className="flex items-center gap-2">
           <div className="bg-emerald-500/10 border border-emerald-500/30 p-2 rounded-xl text-emerald-400">
             <Car size={24} />
           </div>
           <div>
-            <span className="font-bold text-lg tracking-wider text-emerald-400 block font-display uppercase">Gatekeeper</span>
-            <span className="text-xs text-slate-400 font-medium">Event Parking System</span>
+            <span className="font-bold text-base sm:text-lg tracking-wider text-emerald-400 block font-display uppercase">Gatekeeper</span>
+            <span className="text-[10px] sm:text-xs text-slate-400 font-medium">Event Parking System</span>
           </div>
         </Link>
         <SignOutButton />
@@ -99,19 +101,22 @@ export default async function MyCodePage() {
           </div>
 
           <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
-            Please screenshot this ticket or save it to your photos. Present this QR code or backup code to staff at the entry gate.
+            Present this QR code or backup code to staff at the entry gate.
           </p>
 
-          {/* Download QR Action Button */}
+          {/* Download PDF Action Button */}
           {qrDataUrl && (
-            <a
-              href={qrDataUrl}
-              download={`${registration.name.toLowerCase().replace(/\s+/g, '-')}-parking-pass.png`}
-              className="w-full flex items-center justify-center gap-2 px-5 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-semibold rounded-2xl active:scale-[0.98] transition-all duration-200 border border-slate-700/60 text-sm"
-            >
-              <Download size={16} />
-              Save Ticket to Device
-            </a>
+            <PdfDownloadButton
+              registration={{
+                name: registration.name,
+                role: registration.role,
+                role_other_detail: registration.role_other_detail,
+                user_email: registration.user_email,
+                phone_number: registration.phone_number,
+                backup_code: registration.backup_code
+              }}
+              qrDataUrl={qrDataUrl}
+            />
           )}
         </div>
       </main>

@@ -25,14 +25,14 @@ export default async function RegisterPage() {
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-500/10 rounded-full blur-[100px] pointer-events-none"></div>
 
       {/* Header */}
-      <header className="relative z-10 w-full max-w-4xl mx-auto flex items-center justify-between">
+      <header className="relative z-10 w-full max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <div className="bg-emerald-500/10 border border-emerald-500/30 p-2 rounded-xl text-emerald-400">
             <Car size={24} />
           </div>
           <div>
-            <span className="font-bold text-lg tracking-wider text-emerald-400 block font-display uppercase">Gatekeeper</span>
-            <span className="text-xs text-slate-400 font-medium">Event Parking System</span>
+            <span className="font-bold text-base sm:text-lg tracking-wider text-emerald-400 block font-display uppercase">Gatekeeper</span>
+            <span className="text-[10px] sm:text-xs text-slate-400 font-medium">Event Parking System</span>
           </div>
         </div>
         <SignOutButton />

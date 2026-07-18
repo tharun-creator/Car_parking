@@ -117,8 +117,9 @@ export default async function Home() {
         </main>
 
         {/* Footer */}
-        <footer className="w-full text-center py-4 border-t border-[#111] text-[10px] text-[#888] font-mono">
-          {session.user.email}
+        <footer className="w-full text-center py-4 border-t border-[#111] text-[10px] text-[#888] font-mono flex flex-col items-center gap-1">
+          <span>{session.user.email}</span>
+          <span className="text-[9px] text-[#666]">Done by SPI Edge</span>
         </footer>
       </div>
     );
@@ -154,7 +155,7 @@ export default async function Home() {
 
       {/* Footer */}
       <footer className="w-full text-center text-[10px] text-[#888] font-mono">
-        &copy; {new Date().getFullYear()} Gatekeeper. Built with Supabase.
+        &copy; {new Date().getFullYear()} Gatekeeper. Done by SPI Edge.
       </footer>
     </div>
   );

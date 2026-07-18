@@ -307,6 +307,49 @@ export async function generateBulkRegistrationsAction(payload: {
   }
 }
 
+// 4b. Action: Generate Custom Bulk Registrations
+export async function generateCustomBulkRegistrationsAction(payload: {
+  role: string;
+  roleOtherDetail?: string;
+  entries: Array<{
+    name: string;
+    email?: string;
+    phone?: string;
+    details?: string;
+  }>;
+}) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return { success: false, error: 'Not authenticated' };
+  }
+
+  const isStaffUser = await isStaff(session.user.email);
+  if (!isStaffUser) {
+    return { success: false, error: 'Access denied: staff only' };
+  }
+
+  const entries = payload.entries;
+  if (!entries || entries.length === 0) {
+    return { success: false, error: 'No entries provided' };
+  }
+
+  const limitedEntries = entries.slice(0, 250); // limit to 250 entries per request
+  
+  try {
+    const { createCustomBulkRegistrations } = await import('@/lib/sheets');
+    const registrations = await createCustomBulkRegistrations({
+      role: payload.role,
+      role_other_detail: payload.roleOtherDetail || '',
+      entries: limitedEntries,
+    });
+
+    return { success: true, registrations };
+  } catch (error) {
+    console.error('Error during custom bulk registration generation:', error);
+    return { success: false, error: 'Failed to generate bulk registrations' };
+  }
+}
+
 // 5. Action: Get recent scans for ledger display - paginated
 export async function getRecentScansAction(page: number = 1, limit: number = 10) {
   const session = await getServerSession(authOptions);

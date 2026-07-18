@@ -508,3 +508,123 @@ export async function createBulkRegistrations(data: {
   }));
 }
 
+// 9. Bulk create custom registrations
+export async function createCustomBulkRegistrations(data: {
+  role: string;
+  role_other_detail: string;
+  entries: Array<{
+    name: string;
+    email?: string;
+    phone?: string;
+    details?: string;
+  }>;
+}): Promise<Registration[]> {
+  const { role, role_other_detail, entries } = data;
+  const registrations: Registration[] = [];
+  const chars = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+
+  if (isFallbackMode()) {
+    const mockData = readMockData();
+    const existingCodes = new Set(mockData.registrations.map(r => r.backup_code));
+
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      const qr_token = crypto.randomUUID();
+      let backup_code = '';
+      for (let attempt = 0; attempt < 50; attempt++) {
+        let code = '';
+        for (let j = 0; j < 4; j++) {
+          code += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        if (!existingCodes.has(code)) {
+          backup_code = code;
+          existingCodes.add(code);
+          break;
+        }
+      }
+
+      const newId = String(mockData.registrations.length + registrations.length + 2);
+      const user_email = entry.email?.trim() || `bulk-${role.toLowerCase()}-${qr_token.substring(0, 8)}@event.com`;
+      const name = entry.name.trim();
+      const phone_number = entry.phone?.trim() || '+910000000000';
+      const role_detail = entry.details?.trim() || role_other_detail;
+
+      const createdReg: Registration = {
+        row_id: newId,
+        user_email,
+        name,
+        phone_number,
+        role,
+        role_other_detail: role_detail,
+        qr_token,
+        backup_code,
+        status: 'registered',
+        checked_in_at: '',
+        checked_in_by: '',
+        created_at: new Date().toISOString(),
+        password_hash: '',
+      };
+      registrations.push(createdReg);
+    }
+
+    mockData.registrations.push(...registrations);
+    writeMockData(mockData.registrations, mockData.staff, mockData.scanLogs);
+    return registrations;
+  }
+
+  // Supabase Database mode
+  const { data: existingRegs } = await supabase!
+    .from('registrations')
+    .select('backup_code');
+  const existingCodes = new Set((existingRegs || []).map(r => r.backup_code));
+
+  const insertData = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const qr_token = crypto.randomUUID();
+    let backup_code = '';
+    for (let attempt = 0; attempt < 50; attempt++) {
+      let code = '';
+      for (let j = 0; j < 4; j++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      if (!existingCodes.has(code)) {
+        backup_code = code;
+        existingCodes.add(code);
+        break;
+      }
+    }
+    const user_email = entry.email?.trim() || `bulk-${role.toLowerCase()}-${qr_token.substring(0, 8)}@event.com`;
+    const name = entry.name.trim();
+    const phone_number = entry.phone?.trim() || '+910000000000';
+    const role_detail = entry.details?.trim() || role_other_detail;
+
+    insertData.push({
+      user_email,
+      name,
+      phone_number,
+      role,
+      role_other_detail: role_detail,
+      qr_token,
+      backup_code,
+      status: 'registered',
+      password_hash: '',
+    });
+  }
+
+  const { data: newRegs, error } = await supabase!
+    .from('registrations')
+    .insert(insertData)
+    .select();
+
+  if (error || !newRegs) {
+    throw new Error(error?.message || 'Failed to insert custom bulk registrations into Supabase');
+  }
+
+  return newRegs.map((reg: any) => ({
+    ...reg,
+    row_id: String(reg.row_id),
+  }));
+}
+
+
