@@ -223,20 +223,43 @@ export async function verifyAndCheckIn(payload: {
     }
 
     if (!registration) {
-      // Log failed search
-      await appendScanLog({
+      // Log failed search in background (non-blocking)
+      appendScanLog({
         timestamp,
         input_method: payload.method,
         raw_input: rawInput,
         result: 'not_found',
         matched_email: '',
         scanned_by: staffEmail,
-      });
+      }).catch(err => console.error('Failed to append scan log:', err));
 
       return {
         success: true,
         outcome: 'not_found' as const,
         message: 'Invalid credential. No registration found.',
+      };
+    }
+
+    // Pre-check check-in status: skip write operations if already checked in!
+    if (registration.status === 'checked_in') {
+      appendScanLog({
+        timestamp,
+        input_method: payload.method,
+        raw_input: rawInput,
+        result: 'already_checked_in',
+        matched_email: registration.user_email,
+        scanned_by: staffEmail,
+      }).catch(err => console.error('Failed to append scan log:', err));
+
+      return {
+        success: true,
+        outcome: 'already_checked_in' as const,
+        name: registration.name,
+        role: registration.role,
+        role_other_detail: registration.role_other_detail,
+        user_email: registration.user_email,
+        checked_in_at: registration.checked_in_at,
+        checked_in_by: registration.checked_in_by,
       };
     }
 
@@ -246,15 +269,15 @@ export async function verifyAndCheckIn(payload: {
       staffEmail
     );
 
-    // Log the audit event
-    await appendScanLog({
+    // Log the audit event in background (non-blocking)
+    appendScanLog({
       timestamp,
       input_method: payload.method,
       raw_input: rawInput,
       result: outcome,
       matched_email: updatedReg.user_email,
       scanned_by: staffEmail,
-    });
+    }).catch(err => console.error('Failed to append scan log:', err));
 
     return {
       success: true,

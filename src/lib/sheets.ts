@@ -317,9 +317,10 @@ export async function markCheckedIn(
 
 // 6. Check if email is in the Staff list
 export async function isStaff(email: string): Promise<boolean> {
+  const searchEmail = email.trim().toLowerCase();
+
   if (isFallbackMode()) {
     const mockData = readMockData();
-    const searchEmail = email.trim().toLowerCase();
     const isEmailInStaffList = (mockData.staff || []).map(s => s.toLowerCase()).includes(searchEmail);
     if (isEmailInStaffList) return true;
 
@@ -327,23 +328,13 @@ export async function isStaff(email: string): Promise<boolean> {
     return registration?.role === 'super_admin';
   }
 
-  const searchEmail = email.trim().toLowerCase();
+  // Optimize: query both tables in parallel to save a database round-trip
+  const [staffRes, regRes] = await Promise.all([
+    supabase!.from('staff').select('email').eq('email', searchEmail).maybeSingle(),
+    supabase!.from('registrations').select('role').eq('user_email', searchEmail).maybeSingle()
+  ]);
 
-  const { data: staffData } = await supabase!
-    .from('staff')
-    .select('email')
-    .eq('email', searchEmail)
-    .maybeSingle();
-
-  if (staffData) return true;
-
-  const { data: regData } = await supabase!
-    .from('registrations')
-    .select('role')
-    .eq('user_email', searchEmail)
-    .maybeSingle();
-
-  return regData?.role === 'super_admin';
+  return !!staffRes.data || regRes.data?.role === 'super_admin';
 }
 
 // 7. Append log to ScanLog table
