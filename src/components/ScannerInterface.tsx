@@ -68,14 +68,14 @@ export default function ScannerInterface() {
         { facingMode: 'environment' }, // Rear camera
         {
           fps: 30, // Increased frame rate for faster scanning
-          qrbox: (width, height) => {
+          qrbox: (width: number, height: number) => {
             const size = Math.min(width, height) * 0.7;
             return { width: size, height: size };
           },
           experimentalFeatures: {
             useBarCodeDetectorIfSupported: true, // Use native hardware-accelerated BarcodeDetector API if supported
           },
-        },
+        } as any,
         async (decodedText) => {
           // On Success scan
           if (decodedText) {
