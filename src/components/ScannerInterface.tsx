@@ -67,10 +67,13 @@ export default function ScannerInterface() {
       await html5QrCodeRef.current.start(
         { facingMode: 'environment' }, // Rear camera
         {
-          fps: 10,
+          fps: 30, // Increased frame rate for faster scanning
           qrbox: (width, height) => {
             const size = Math.min(width, height) * 0.7;
             return { width: size, height: size };
+          },
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true, // Use native hardware-accelerated BarcodeDetector API if supported
           },
         },
         async (decodedText) => {
@@ -173,10 +176,10 @@ export default function ScannerInterface() {
         // Play outcome sound
         playBeep(response.outcome);
 
-        // Auto-close overlay after 2.5 seconds (reduced for faster throughput)
+        // Auto-close overlay after 1.5 seconds (reduced for faster throughput)
         setTimeout(() => {
           closeOverlay();
-        }, 2500);
+        }, 1500);
       } else {
         playBeep('not_found');
         setErrorMsg(response.error || 'Check-in failed');

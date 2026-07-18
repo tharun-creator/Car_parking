@@ -102,8 +102,11 @@ export default function BulkQrInterface() {
       // Add Manifest CSV to zip root
       zip.file('manifest.csv', csvContent);
 
-      // Generate ZIP content
-      const content = await zip.generateAsync({ type: 'blob' });
+      // Generate ZIP content with explicit MIME type
+      const content = await zip.generateAsync({ 
+        type: 'blob',
+        mimeType: 'application/zip'
+      });
       const dataUrl = URL.createObjectURL(content);
       
       const safeZipName = `bulk-passes-${role}-${new Date().toISOString().slice(0, 10)}.zip`;
@@ -243,14 +246,21 @@ export default function BulkQrInterface() {
 
                 {/* Download Actions */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                  <a
-                    href={zipDataUrl}
-                    download={zipName}
+                  <button
+                    onClick={() => {
+                      if (!zipDataUrl) return;
+                      const a = document.createElement('a');
+                      a.href = zipDataUrl;
+                      a.download = zipName;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                    }}
                     className="flex items-center justify-center gap-2 px-5 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl transition-all shadow-lg shadow-emerald-950/20 active:scale-[0.98] text-sm"
                   >
                     <Download size={18} />
                     Download ZIP ({generatedPasses.length} QRs)
-                  </a>
+                  </button>
                   <button
                     onClick={() => {
                       const csvFile = generatedPasses.reduce((acc, reg) => {
