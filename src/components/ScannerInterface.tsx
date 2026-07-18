@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { verifyAndCheckIn } from '@/app/actions';
-import { QrCode, Keyboard, AlertCircle, RefreshCw, X, CheckCircle, HelpCircle } from 'lucide-react';
+import { verifyAndCheckIn, getRecentScansAction } from '@/app/actions';
+import { QrCode, Keyboard, AlertCircle, RefreshCw, X, CheckCircle, HelpCircle, History, UserCheck, UserX, Clock } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
+import { ScanLogEntry } from '@/lib/sheets';
 
 interface ScanResult {
   outcome: 'verified' | 'already_checked_in' | 'not_found';
@@ -21,6 +22,7 @@ export default function ScannerInterface() {
   const [scannerActive, setScannerActive] = useState(false);
   const [cameraPermission, setCameraPermission] = useState<boolean | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [logs, setLogs] = useState<ScanLogEntry[]>([]);
   
   // Status Overlays
   const [resultOverlay, setResultOverlay] = useState<ScanResult | null>(null);
@@ -160,6 +162,11 @@ export default function ScannerInterface() {
     setIsLocked(true);
     setLoading(true);
 
+    // Stop scanner camera immediately on successful read to prevent background scans
+    if (params.method === 'qr') {
+      await stopScanner();
+    }
+
     try {
       const response = await verifyAndCheckIn(params);
 
@@ -186,10 +193,8 @@ export default function ScannerInterface() {
           }
         }
 
-        // Auto-close overlay after 2 seconds
-        setTimeout(() => {
-          closeOverlay();
-        }, 2000);
+        // Refresh the ledger list immediately
+        fetchLogs();
       } else {
         playBeep('not_found');
         if (typeof window !== 'undefined' && window.navigator.vibrate) {
@@ -198,6 +203,9 @@ export default function ScannerInterface() {
         setErrorMsg(response.error || 'Check-in failed');
         isLockedRef.current = false;
         setIsLocked(false);
+        if (params.method === 'qr') {
+          startScanner();
+        }
       }
     } catch (err) {
       console.error(err);
@@ -208,6 +216,9 @@ export default function ScannerInterface() {
       setErrorMsg('Network error. Check connection and try again.');
       isLockedRef.current = false;
       setIsLocked(false);
+      if (params.method === 'qr') {
+        startScanner();
+      }
     } finally {
       setLoading(false);
     }
@@ -229,11 +240,24 @@ export default function ScannerInterface() {
     isLockedRef.current = false;
     setIsLocked(false);
     setErrorMsg(null);
-    // Camera is kept running, so no startScanner needed here
+    // Restart camera scanner after closing overlay details
+    startScanner();
   };
 
-  // Auto-start scanner on load
+  const fetchLogs = async () => {
+    try {
+      const res = await getRecentScansAction();
+      if (res.success && res.logs) {
+        setLogs(res.logs);
+      }
+    } catch (e) {
+      console.error('Error fetching logs:', e);
+    }
+  };
+
+  // Auto-start scanner on load and fetch recent scan logs
   useEffect(() => {
+    fetchLogs();
     const timer = setTimeout(() => {
       startScanner();
     }, 0);
@@ -367,92 +391,171 @@ export default function ScannerInterface() {
           </div>
         </div>
 
-        {/* Floating GPay-Style Card Result Toast overlaying bottom half */}
-        {resultOverlay && (
-          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-xs z-30 flex items-end p-4 rounded-3xl animate-fadeIn">
-            <div className="w-full bg-slate-900/95 border border-slate-800 backdrop-blur-xl p-5 rounded-3xl shadow-2xl space-y-4 animate-slideUp">
-              {/* Header with Close and Icon */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2.5 rounded-2xl ${
-                    resultOverlay.outcome === 'verified'
-                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                      : resultOverlay.outcome === 'already_checked_in'
-                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                      : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                  }`}>
-                    {resultOverlay.outcome === 'verified' && <CheckCircle size={22} className="animate-bounce" />}
-                    {resultOverlay.outcome === 'already_checked_in' && <AlertCircle size={22} />}
-                    {resultOverlay.outcome === 'not_found' && <X size={22} />}
+        </div>
+
+      {/* Scan History Ledger Panel */}
+      <div className="glass-panel p-6 rounded-3xl space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <History className="text-emerald-400" size={20} />
+            <h2 className="font-bold text-base text-slate-100">Scan Activity Ledger</h2>
+          </div>
+          <button 
+            onClick={fetchLogs} 
+            className="text-xs flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white rounded-xl transition-all"
+          >
+            <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+            Refresh
+          </button>
+        </div>
+
+        <div className="overflow-x-auto rounded-2xl border border-slate-900">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-950/80 border-b border-slate-900 text-slate-400 font-semibold">
+                <th className="p-3">Time & Date</th>
+                <th className="p-3">Identified Registrant</th>
+                <th className="p-3">Method</th>
+                <th className="p-3 text-right">Verification Outcome</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="p-8 text-center text-slate-500 font-medium">
+                    No scan activity found yet. Start scanning to populate the ledger.
+                  </td>
+                </tr>
+              ) : (
+                logs.map((log, index) => {
+                  const dateObj = new Date(log.timestamp);
+                  const formattedTime = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                  const formattedDate = dateObj.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                  
+                  return (
+                    <tr key={index} className="border-b border-slate-900 bg-slate-900/10 hover:bg-slate-900/45 transition-colors">
+                      <td className="p-3 text-slate-300 font-medium">
+                        <div className="flex items-center gap-2">
+                          <Clock size={13} className="text-slate-500" />
+                          <span>{formattedDate}, {formattedTime}</span>
+                        </div>
+                      </td>
+                      <td className="p-3 font-mono font-semibold text-slate-200">
+                        {log.matched_email || log.raw_input || 'N/A'}
+                      </td>
+                      <td className="p-3 text-slate-400 font-medium capitalize">
+                        {log.input_method === 'qr' ? 'QR Code' : 'Backup Code'}
+                      </td>
+                      <td className="p-3 text-right">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${
+                          log.result === 'verified'
+                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                            : log.result === 'already_checked_in'
+                            ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                            : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                        }`}>
+                          {log.result === 'verified' && <UserCheck size={11} />}
+                          {log.result === 'already_checked_in' && <UserCheck size={11} />}
+                          {log.result === 'not_found' && <UserX size={11} />}
+                          {log.result === 'verified' && 'Verified'}
+                          {log.result === 'already_checked_in' && 'Already Scanned'}
+                          {log.result === 'not_found' && 'Not Found'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Floating GPay-Style Card Result Toast overlaying bottom half */}
+      {resultOverlay && (
+        <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-xs z-30 flex items-end p-4 rounded-3xl animate-fadeIn">
+          <div className="w-full bg-slate-900/95 border border-slate-800 backdrop-blur-xl p-5 rounded-3xl shadow-2xl space-y-4 animate-slideUp">
+            {/* Header with Close and Icon */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`p-2.5 rounded-2xl ${
+                  resultOverlay.outcome === 'verified'
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                    : resultOverlay.outcome === 'already_checked_in'
+                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                    : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                }`}>
+                  {resultOverlay.outcome === 'verified' && <CheckCircle size={22} className="animate-bounce" />}
+                  {resultOverlay.outcome === 'already_checked_in' && <AlertCircle size={22} />}
+                  {resultOverlay.outcome === 'not_found' && <X size={22} />}
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-white">
+                    {resultOverlay.outcome === 'verified' && 'Access Approved'}
+                    {resultOverlay.outcome === 'already_checked_in' && 'Already Scanned'}
+                    {resultOverlay.outcome === 'not_found' && 'Access Denied'}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {resultOverlay.outcome === 'verified' && 'Pass verified successfully'}
+                    {resultOverlay.outcome === 'already_checked_in' && 'Duplicate pass scan detected'}
+                    {resultOverlay.outcome === 'not_found' && 'This pass is not registered'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={closeOverlay}
+                className="p-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-all"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Details content */}
+            {resultOverlay.outcome !== 'not_found' && (
+              <div className="bg-slate-950/60 border border-slate-800/40 p-4 rounded-2xl space-y-3">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Name</span>
+                    <span className="text-sm font-semibold text-slate-100 block truncate">{resultOverlay.name}</span>
                   </div>
                   <div>
-                    <h3 className="font-bold text-base text-white">
-                      {resultOverlay.outcome === 'verified' && 'Access Approved'}
-                      {resultOverlay.outcome === 'already_checked_in' && 'Already Scanned'}
-                      {resultOverlay.outcome === 'not_found' && 'Access Denied'}
-                    </h3>
-                    <p className="text-xs text-slate-400">
-                      {resultOverlay.outcome === 'verified' && 'Pass verified successfully'}
-                      {resultOverlay.outcome === 'already_checked_in' && 'Duplicate pass scan detected'}
-                      {resultOverlay.outcome === 'not_found' && 'This pass is not registered'}
-                    </p>
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Role</span>
+                    <span className="text-sm font-semibold text-emerald-400 block capitalize truncate">
+                      {resultOverlay.role === 'other' ? resultOverlay.role_other_detail : resultOverlay.role}
+                    </span>
                   </div>
                 </div>
-                <button
-                  onClick={closeOverlay}
-                  className="p-1.5 bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-all"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              {/* Details content */}
-              {resultOverlay.outcome !== 'not_found' && (
-                <div className="bg-slate-950/60 border border-slate-800/40 p-4 rounded-2xl space-y-3">
-                  <div className="grid grid-cols-2 gap-4">
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-900">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Email</span>
+                    <span className="text-xs text-slate-300 block truncate">{resultOverlay.user_email}</span>
+                  </div>
+                  {resultOverlay.outcome === 'already_checked_in' && (
                     <div>
-                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Name</span>
-                      <span className="text-sm font-semibold text-slate-100 block truncate">{resultOverlay.name}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Role</span>
-                      <span className="text-sm font-semibold text-emerald-400 block capitalize truncate">
-                        {resultOverlay.role === 'other' ? resultOverlay.role_other_detail : resultOverlay.role}
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-amber-500">First Scan</span>
+                      <span className="text-xs text-slate-300 block truncate">
+                        {resultOverlay.checked_in_at ? new Date(resultOverlay.checked_in_at).toLocaleTimeString() : ''} by {resultOverlay.checked_in_by}
                       </span>
                     </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-900">
-                    <div>
-                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Email</span>
-                      <span className="text-xs text-slate-300 block truncate">{resultOverlay.user_email}</span>
-                    </div>
-                    {resultOverlay.outcome === 'already_checked_in' && (
-                      <div>
-                        <span className="text-[10px] uppercase font-bold tracking-wider text-amber-500">First Scan</span>
-                        <span className="text-xs text-slate-300 block truncate">
-                          {resultOverlay.checked_in_at ? new Date(resultOverlay.checked_in_at).toLocaleTimeString() : ''} by {resultOverlay.checked_in_by}
-                        </span>
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
-              )}
-
-              {/* Continue scanning / auto-resume footer */}
-              <div className="flex justify-between items-center pt-2">
-                <span className="text-[10px] text-slate-500 animate-pulse">Auto-resuming scanner...</span>
-                <button
-                  onClick={closeOverlay}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl active:scale-[0.98] transition-all text-xs"
-                >
-                  Close
-                </button>
               </div>
+            )}
+
+            {/* Continue scanning / auto-resume footer */}
+            <div className="flex justify-between items-center pt-2">
+              <span className="text-[10px] text-slate-500">Scan paused. Ready to verify next.</span>
+              <button
+                onClick={closeOverlay}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl active:scale-[0.98] transition-all text-xs"
+              >
+                Continue Scanning
+              </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

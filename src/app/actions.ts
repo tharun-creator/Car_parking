@@ -10,7 +10,9 @@ import {
   markCheckedIn,
   appendScanLog,
   isStaff,
-  Registration
+  getRecentScans,
+  Registration,
+  ScanLogEntry
 } from '@/lib/sheets';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
@@ -304,4 +306,26 @@ export async function generateBulkRegistrationsAction(payload: {
     return { success: false, error: 'Failed to generate bulk registrations' };
   }
 }
+
+// 5. Action: Get recent scans for ledger display
+export async function getRecentScansAction() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return { success: false, error: 'Not authenticated' };
+  }
+
+  const isStaffUser = await isStaff(session.user.email);
+  if (!isStaffUser) {
+    return { success: false, error: 'Access denied: staff only' };
+  }
+
+  try {
+    const logs = await getRecentScans(30);
+    return { success: true, logs };
+  } catch (error) {
+    console.error('Error in getRecentScansAction server action:', error);
+    return { success: false, error: 'Failed to fetch recent scans' };
+  }
+}
+
 

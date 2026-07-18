@@ -42,7 +42,8 @@ function readMockData() {
       const data = JSON.parse(fileContent);
       return {
         registrations: (data.registrations || []) as Registration[],
-        staff: (data.staff || ['staff@example.com', 'mohan@gmail.com', 'tharunriot@gmail.com']) as string[]
+        staff: (data.staff || ['staff@example.com', 'mohan@gmail.com', 'tharunriot@gmail.com']) as string[],
+        scanLogs: (data.scanLogs || []) as ScanLogEntry[]
       };
     } catch (e) {
       console.error('Error reading mock DB file, resetting:', e);
@@ -82,16 +83,17 @@ function readMockData() {
         password_hash: '',
       }
     ],
-    staff: ['staff@example.com', 'mohan@gmail.com', 'tharunriot@gmail.com']
+    staff: ['staff@example.com', 'mohan@gmail.com', 'tharunriot@gmail.com'],
+    scanLogs: [] as ScanLogEntry[]
   };
   
-  writeMockData(defaultData.registrations, defaultData.staff);
+  writeMockData(defaultData.registrations, defaultData.staff, defaultData.scanLogs);
   return defaultData;
 }
 
-function writeMockData(registrations: Registration[], staff: string[]) {
+function writeMockData(registrations: Registration[], staff: string[], scanLogs: ScanLogEntry[]) {
   try {
-    fs.writeFileSync(MOCK_FILE_PATH, JSON.stringify({ registrations, staff }, null, 2), 'utf-8');
+    fs.writeFileSync(MOCK_FILE_PATH, JSON.stringify({ registrations, staff, scanLogs }, null, 2), 'utf-8');
   } catch (e) {
     console.error('Error writing to mock DB file:', e);
   }
@@ -159,7 +161,7 @@ export async function createRegistration(data: {
       password_hash: data.password_hash || '',
     };
     mockData.registrations.push(createdReg);
-    writeMockData(mockData.registrations, mockData.staff);
+    writeMockData(mockData.registrations, mockData.staff, mockData.scanLogs);
     return createdReg;
   }
 
@@ -262,7 +264,7 @@ export async function markCheckedIn(
     };
     const idx = mockData.registrations.findIndex(r => r.row_id === rowId);
     if (idx !== -1) mockData.registrations[idx] = updatedReg;
-    writeMockData(mockData.registrations, mockData.staff);
+    writeMockData(mockData.registrations, mockData.staff, mockData.scanLogs);
     return { outcome: 'verified', registration: updatedReg };
   }
 
@@ -347,6 +349,9 @@ export async function isStaff(email: string): Promise<boolean> {
 // 7. Append log to ScanLog table
 export async function appendScanLog(entry: ScanLogEntry): Promise<void> {
   if (isFallbackMode()) {
+    const mockData = readMockData();
+    mockData.scanLogs.push(entry);
+    writeMockData(mockData.registrations, mockData.staff, mockData.scanLogs);
     console.log('Mock Scan Log appended:', entry);
     return;
   }
@@ -361,6 +366,24 @@ export async function appendScanLog(entry: ScanLogEntry): Promise<void> {
       matched_email: entry.matched_email,
       scanned_by: entry.scanned_by,
     });
+}
+
+// 7b. Get recent scans (with registration details)
+export async function getRecentScans(limit: number = 20): Promise<ScanLogEntry[]> {
+  if (isFallbackMode()) {
+    const mockData = readMockData();
+    // Return the latest logs first
+    return [...mockData.scanLogs].reverse().slice(0, limit);
+  }
+
+  const { data, error } = await supabase!
+    .from('scan_log')
+    .select('*')
+    .order('timestamp', { ascending: false })
+    .limit(limit);
+
+  if (error || !data) return [];
+  return data as ScanLogEntry[];
 }
 
 // 8. Bulk create registrations
@@ -416,7 +439,7 @@ export async function createBulkRegistrations(data: {
     }
 
     mockData.registrations.push(...registrations);
-    writeMockData(mockData.registrations, mockData.staff);
+    writeMockData(mockData.registrations, mockData.staff, mockData.scanLogs);
     return registrations;
   }
 
